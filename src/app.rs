@@ -441,6 +441,7 @@ impl App {
         }
 
         let session = self.ensure_session(session_key, from.id)?;
+        let session = self.prepare_isolated_group_session(&message.chat, session)?;
         let session = self.resolve_session_codex_binding(session)?;
         let session = self.maybe_assign_session_title_from_text(session, &prompt_text)?;
         self.announce_session_if_switched(from.id, &message.chat, session.key, &session)
@@ -1630,6 +1631,21 @@ impl App {
         resolve_session_codex_binding_from_history(&self.shared, session)
     }
 
+    fn prepare_isolated_group_session(
+        &self,
+        chat: &crate::telegram::Chat,
+        session: crate::models::SessionRecord,
+    ) -> Result<crate::models::SessionRecord> {
+        if !group_session_needs_fresh_thread(&self.shared.config, chat, &session) {
+            return Ok(session);
+        }
+        self.shared.store.clear_session_conversation(session.key)?;
+        self.shared
+            .store
+            .get_session(session.key)?
+            .ok_or_else(|| anyhow!("failed to reload isolated group session"))
+    }
+
     fn bind_session_to_codex_summary(
         &self,
         session: &crate::models::SessionRecord,
@@ -1663,6 +1679,9 @@ impl App {
             return Ok(());
         }
         self.shared.store.save_bot_state(&state_key, &current)?;
+        if !should_announce_session_switch(&self.shared.config, chat) {
+            return Ok(());
+        }
         self.send_status(
             chat.id,
             Some(session_key.thread_id).filter(|value| *value != 0),
@@ -1917,7 +1936,21 @@ fn is_group_chat(chat: &crate::telegram::Chat) -> bool {
 }
 
 fn group_message_requires_addressing(config: &Config, chat: &crate::telegram::Chat) -> bool {
-    is_group_chat(chat) && config.telegram.group_activation == GroupActivation::MentionOrReply
+    is_group_chat(chat) && config.telegram.group_activation != GroupActivation::All
+}
+
+fn group_session_needs_fresh_thread(
+    config: &Config,
+    chat: &crate::telegram::Chat,
+    session: &crate::models::SessionRecord,
+) -> bool {
+    group_message_requires_addressing(config, chat)
+        && session.codex_thread_id.is_none()
+        && !session.force_fresh_thread
+}
+
+fn should_announce_session_switch(config: &Config, chat: &crate::telegram::Chat) -> bool {
+    !is_group_chat(chat) || config.telegram.stream_group_responses
 }
 
 fn group_user_is_allowed(config: &Config, chat: &crate::telegram::Chat, user_id: i64) -> bool {

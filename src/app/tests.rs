@@ -302,6 +302,54 @@ fn mention_only_mode_rejects_replies_without_a_mention() {
 }
 
 #[test]
+fn mention_only_mode_uses_addressed_prompt_with_reply_context() {
+    let mut config = sample_config(PathBuf::from("db.sqlite3"), sample_workspace());
+    config.telegram.group_activation = GroupActivation::MentionOnly;
+    let message = sample_telegram_message("supergroup", 100, "@team_bot inspect this");
+
+    assert!(group_message_requires_addressing(&config, &message.chat));
+}
+
+#[test]
+fn final_only_groups_suppress_session_switch_announcements() {
+    let mut config = sample_config(PathBuf::from("db.sqlite3"), sample_workspace());
+    let group = sample_telegram_message("supergroup", 100, "hello");
+    let private = sample_telegram_message("private", 100, "hello");
+
+    config.telegram.stream_group_responses = false;
+    assert!(!should_announce_session_switch(&config, &group.chat));
+    assert!(should_announce_session_switch(&config, &private.chat));
+
+    config.telegram.stream_group_responses = true;
+    assert!(should_announce_session_switch(&config, &group.chat));
+}
+
+#[test]
+fn addressed_group_sessions_start_with_fresh_codex_threads() {
+    let db = NamedTempFile::new().unwrap();
+    let mut config = sample_config(db.path().to_path_buf(), sample_workspace());
+    config.telegram.group_activation = GroupActivation::MentionOnly;
+    let store = Store::open(db.path(), &[100], &sample_defaults()).unwrap();
+    let key = SessionKey::new(-100123, Some(8));
+    let session = store.ensure_session(key, 100, &sample_defaults()).unwrap();
+    let group = sample_telegram_message("supergroup", 100, "@team_bot hello");
+
+    assert!(group_session_needs_fresh_thread(
+        &config,
+        &group.chat,
+        &session
+    ));
+
+    store.clear_session_conversation(key).unwrap();
+    let session = store.get_session(key).unwrap().unwrap();
+    assert!(!group_session_needs_fresh_thread(
+        &config,
+        &group.chat,
+        &session
+    ));
+}
+
+#[test]
 fn strips_only_the_current_bot_mention_from_the_request() {
     assert_eq!(
         strip_bot_mention("@Team_Bot inspect this @other_bot", Some("team_bot")),
