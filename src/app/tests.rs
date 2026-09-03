@@ -85,6 +85,9 @@ fn sample_config(db_path: PathBuf, default_cwd: PathBuf) -> Config {
             bot_token_env: None,
             api_base: "https://api.telegram.org".to_string(),
             use_message_drafts: false,
+            group_activation: GroupActivation::All,
+            group_allowed_user_ids: vec![],
+            stream_group_responses: true,
             primary_forum_chat_id: None,
             auto_create_topics: false,
             forum_sync_topics_per_poll: 2,
@@ -126,6 +129,7 @@ fn sample_app() -> (App, NamedTempFile) {
             "https://api.telegram.org".to_string(),
         ),
         codex: CodexRunner::new(PathBuf::from("codex")),
+        bot_user_id: 999,
         bot_username: None,
         service_user_id: 0,
         handy_model_dir: None,
@@ -144,6 +148,160 @@ fn sample_app() -> (App, NamedTempFile) {
         },
         db,
     )
+}
+
+fn sample_telegram_message(chat_kind: &str, from_user_id: i64, text: &str) -> Message {
+    serde_json::from_value(serde_json::json!({
+        "message_id": 10,
+        "from": {
+            "id": from_user_id,
+            "is_bot": false,
+            "first_name": "Owner"
+        },
+        "chat": {
+            "id": if chat_kind == "private" { from_user_id } else { -100123 },
+            "type": chat_kind
+        },
+        "text": text
+    }))
+    .unwrap()
+}
+
+#[test]
+fn existing_configs_keep_accepting_ordinary_group_messages() {
+    let config = sample_config(PathBuf::from("db.sqlite3"), sample_workspace());
+    let message = sample_telegram_message("supergroup", 100, "ordinary message");
+
+    assert!(group_user_is_allowed(&config, &message.chat, 100));
+    assert!(group_message_is_activated(
+        &config,
+        &message,
+        999,
+        Some("team_bot")
+    ));
+    assert!(config.telegram.stream_group_responses);
+}
+
+#[test]
+fn group_owner_allowlist_does_not_restrict_private_chats() {
+    let mut config = sample_config(PathBuf::from("db.sqlite3"), sample_workspace());
+    config.telegram.group_allowed_user_ids = vec![100];
+    let group = sample_telegram_message("group", 100, "hello");
+    let private = sample_telegram_message("private", 200, "hello");
+
+    assert!(group_user_is_allowed(&config, &group.chat, 100));
+    assert!(!group_user_is_allowed(&config, &group.chat, 200));
+    assert!(group_user_is_allowed(&config, &private.chat, 200));
+}
+
+#[test]
+fn mention_or_reply_mode_ignores_unaddressed_group_messages() {
+    let mut config = sample_config(PathBuf::from("db.sqlite3"), sample_workspace());
+    config.telegram.group_activation = GroupActivation::MentionOrReply;
+    let ordinary = sample_telegram_message("supergroup", 100, "ordinary message");
+    let mentioned = sample_telegram_message("supergroup", 100, "@Team_Bot inspect this");
+    let similar_username =
+        sample_telegram_message("supergroup", 100, "@team_bot_extra inspect this");
+
+    assert!(!group_message_is_activated(
+        &config,
+        &ordinary,
+        999,
+        Some("team_bot")
+    ));
+    assert!(group_message_is_activated(
+        &config,
+        &mentioned,
+        999,
+        Some("team_bot")
+    ));
+    assert!(!group_message_is_activated(
+        &config,
+        &similar_username,
+        999,
+        Some("team_bot")
+    ));
+}
+
+#[test]
+fn mention_or_reply_mode_accepts_only_replies_to_this_bot() {
+    let mut config = sample_config(PathBuf::from("db.sqlite3"), sample_workspace());
+    config.telegram.group_activation = GroupActivation::MentionOrReply;
+    let reply_to_bot: Message = serde_json::from_value(serde_json::json!({
+        "message_id": 11,
+        "from": { "id": 100, "is_bot": false, "first_name": "Owner" },
+        "chat": { "id": -100123, "type": "supergroup" },
+        "text": "continue",
+        "reply_to_message": {
+            "message_id": 10,
+            "from": { "id": 999, "is_bot": true, "first_name": "Team Bot" },
+            "chat": { "id": -100123, "type": "supergroup" },
+            "text": "previous answer"
+        }
+    }))
+    .unwrap();
+    let reply_to_person: Message = serde_json::from_value(serde_json::json!({
+        "message_id": 12,
+        "from": { "id": 100, "is_bot": false, "first_name": "Owner" },
+        "chat": { "id": -100123, "type": "supergroup" },
+        "text": "continue",
+        "reply_to_message": {
+            "message_id": 9,
+            "from": { "id": 200, "is_bot": false, "first_name": "Other" },
+            "chat": { "id": -100123, "type": "supergroup" },
+            "text": "referenced message"
+        }
+    }))
+    .unwrap();
+
+    assert!(group_message_is_activated(
+        &config,
+        &reply_to_bot,
+        999,
+        Some("team_bot")
+    ));
+    assert!(!group_message_is_activated(
+        &config,
+        &reply_to_person,
+        999,
+        Some("team_bot")
+    ));
+}
+
+#[test]
+fn strips_only_the_current_bot_mention_from_the_request() {
+    assert_eq!(
+        strip_bot_mention("@Team_Bot inspect this @other_bot", Some("team_bot")),
+        "inspect this @other_bot"
+    );
+    assert_eq!(
+        strip_bot_mention("ask @team_bot_extra", Some("team_bot")),
+        "ask @team_bot_extra"
+    );
+}
+
+#[test]
+fn adds_a_replied_person_message_as_quoted_context() {
+    let message: Message = serde_json::from_value(serde_json::json!({
+        "message_id": 12,
+        "from": { "id": 100, "is_bot": false, "first_name": "Owner" },
+        "chat": { "id": -100123, "type": "supergroup" },
+        "text": "@team_bot handle this",
+        "reply_to_message": {
+            "message_id": 9,
+            "from": { "id": 200, "is_bot": false, "first_name": "Other" },
+            "chat": { "id": -100123, "type": "supergroup" },
+            "text": "Please update the deployment."
+        }
+    }))
+    .unwrap();
+
+    let replied = replied_message_text(&message, 999).unwrap();
+    let prompt = prompt_with_replied_message_context("handle this", Some(&replied));
+
+    assert!(prompt.contains("<telegram_replied_message>"));
+    assert!(prompt.contains("Please update the deployment."));
+    assert!(prompt.ends_with("User request:\nhandle this"));
 }
 
 #[tokio::test]
@@ -1612,6 +1770,7 @@ fn rebinds_stale_session_to_latest_active_thread_for_same_cwd() {
             "https://api.telegram.org".to_string(),
         ),
         codex: CodexRunner::new(PathBuf::from("codex")),
+        bot_user_id: 999,
         bot_username: None,
         service_user_id: 0,
         handy_model_dir: None,
@@ -1674,6 +1833,7 @@ fn keeps_truly_archived_session_unbound_when_no_active_replacement_exists() {
             "https://api.telegram.org".to_string(),
         ),
         codex: CodexRunner::new(PathBuf::from("codex")),
+        bot_user_id: 999,
         bot_username: None,
         service_user_id: 0,
         handy_model_dir: None,

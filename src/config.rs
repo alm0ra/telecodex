@@ -31,6 +31,12 @@ pub struct TelegramConfig {
     pub api_base: String,
     #[serde(default = "default_true")]
     pub use_message_drafts: bool,
+    #[serde(default)]
+    pub group_activation: GroupActivation,
+    #[serde(default)]
+    pub group_allowed_user_ids: Vec<i64>,
+    #[serde(default = "default_true")]
+    pub stream_group_responses: bool,
     pub primary_forum_chat_id: Option<i64>,
     #[serde(default)]
     pub auto_create_topics: bool,
@@ -41,6 +47,14 @@ pub struct TelegramConfig {
     pub stale_topic_action: StaleTopicAction,
     #[serde(default)]
     pub completion_notify_usernames: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupActivation {
+    #[default]
+    All,
+    MentionOrReply,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
@@ -193,6 +207,16 @@ impl Config {
         if self.telegram.forum_sync_topics_per_poll == 0 {
             bail!("telegram.forum_sync_topics_per_poll must be >= 1");
         }
+        if self
+            .telegram
+            .group_allowed_user_ids
+            .iter()
+            .any(|user_id| *user_id <= 0)
+        {
+            bail!("telegram.group_allowed_user_ids entries must be positive user IDs");
+        }
+        self.telegram.group_allowed_user_ids.sort_unstable();
+        self.telegram.group_allowed_user_ids.dedup();
         let mut completion_notify_usernames = Vec::new();
         for username in &self.telegram.completion_notify_usernames {
             let username = normalize_completion_notify_username(username)?;
@@ -408,6 +432,20 @@ fn find_vendored_codex_exe(wrapper_path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_existing_group_behavior_by_default() {
+        let config: TelegramConfig = toml::from_str(
+            r#"
+            bot_token = "test-token"
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.group_activation, GroupActivation::All);
+        assert!(config.group_allowed_user_ids.is_empty());
+        assert!(config.stream_group_responses);
+    }
 
     #[test]
     fn normalizes_completion_notify_usernames() {

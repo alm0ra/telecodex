@@ -644,6 +644,7 @@ pub struct Message {
     pub chat: Chat,
     pub text: Option<String>,
     pub caption: Option<String>,
+    pub reply_to_message: Option<Box<Message>>,
     #[serde(default)]
     pub photo: Vec<PhotoSize>,
     pub document: Option<Document>,

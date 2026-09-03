@@ -44,7 +44,16 @@ pub(super) async fn process_turn(
     let placeholder_text = render_placeholder_html(thinking_text, turn_banner.as_deref());
     let thread_id = Some(session.key.thread_id).filter(|value| *value != 0);
     let draft_id = turn_id;
-    let sink = if shared.config.telegram.use_message_drafts && queued.chat_kind == "private" {
+    let sink = if should_defer_group_response(
+        &queued.chat_kind,
+        shared.config.telegram.stream_group_responses,
+    ) {
+        Arc::new(Mutex::new(LiveTurnSink::new_deferred(
+            shared.clone(),
+            &session,
+            turn_banner,
+        )))
+    } else if shared.config.telegram.use_message_drafts && queued.chat_kind == "private" {
         match shared
             .telegram
             .send_message_draft(SendMessageDraft::html(
@@ -231,6 +240,10 @@ pub(super) async fn process_turn(
         &turn_workspace.root,
         final_result,
     )
+}
+
+fn should_defer_group_response(chat_kind: &str, stream_group_responses: bool) -> bool {
+    chat_kind != "private" && !stream_group_responses
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -535,6 +548,7 @@ struct LiveTurnSink {
     last_flushed_text: String,
     last_flush_at: Instant,
     edit_backoff_until: Option<Instant>,
+    defer_until_finish: bool,
 }
 
 impl LiveTurnSink {
@@ -555,6 +569,7 @@ impl LiveTurnSink {
             last_flushed_text: String::new(),
             last_flush_at: Instant::now() - Duration::from_secs(60),
             edit_backoff_until: None,
+            defer_until_finish: false,
         }
     }
 
@@ -575,6 +590,27 @@ impl LiveTurnSink {
             last_flushed_text: String::new(),
             last_flush_at: Instant::now() - Duration::from_secs(60),
             edit_backoff_until: None,
+            defer_until_finish: false,
+        }
+    }
+
+    fn new_deferred(
+        shared: Arc<AppShared>,
+        session: &crate::models::SessionRecord,
+        limits_inline: Option<String>,
+    ) -> Self {
+        Self {
+            shared,
+            session_key: session.key,
+            messages: Vec::new(),
+            draft_id: None,
+            limits_inline,
+            pending_text: String::new(),
+            has_assistant_text: false,
+            last_flushed_text: String::new(),
+            last_flush_at: Instant::now() - Duration::from_secs(60),
+            edit_backoff_until: None,
+            defer_until_finish: true,
         }
     }
 
@@ -621,6 +657,9 @@ impl LiveTurnSink {
     }
 
     async fn flush(&mut self, force: bool) -> Result<()> {
+        if self.defer_until_finish && !force {
+            return Ok(());
+        }
         if self
             .edit_backoff_until
             .is_some_and(|until| until <= Instant::now())
@@ -1485,5 +1524,14 @@ Hi. What should we do next?"
         let banner = turn_start_banner(Some("Limits: ok".to_string()), &session).unwrap();
 
         assert_eq!(banner, "Limits: ok");
+    }
+
+    #[test]
+    fn final_only_group_mode_does_not_change_private_or_default_group_delivery() {
+        assert!(!should_defer_group_response("private", false));
+        assert!(!should_defer_group_response("group", true));
+        assert!(!should_defer_group_response("supergroup", true));
+        assert!(should_defer_group_response("group", false));
+        assert!(should_defer_group_response("supergroup", false));
     }
 }

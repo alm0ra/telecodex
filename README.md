@@ -227,6 +227,9 @@ tmp_dir = "/absolute/path/to/telecodex/tmp"
 bot_token_env = "TELEGRAM_BOT_TOKEN"
 api_base = "https://api.telegram.org"
 use_message_drafts = true
+group_activation = "all"
+group_allowed_user_ids = []
+stream_group_responses = true
 
 [codex]
 binary = "codex"
@@ -264,6 +267,10 @@ Telecodex will start `codex login --device-auth`, send a clickable `auth.openai.
 
 - `telegram.bot_token` or `telegram.bot_token_env` must be configured.
 - `telegram.use_message_drafts = true` enables `sendMessageDraft` previews for private chats; final replies are still sent as normal messages.
+- `telegram.group_activation = "mention_or_reply"` ignores ordinary group messages and accepts only messages that mention the bot or directly reply to one of its messages. Private chats are unaffected.
+- `telegram.group_allowed_user_ids` is an additional group-only owner allowlist. An empty list preserves the normal SQLite ACL behavior; a non-empty list requires membership in both this list and the ACL.
+- `telegram.stream_group_responses = false` suppresses group placeholders and live edits, sending only the final response. Typing indicators may still be shown while Codex works.
+- Telegram Privacy Mode can remain enabled for `mention_or_reply`; Telegram delivers messages that mention the bot and direct replies to the bot.
 - Group and topic previews use throttled `editMessageText` updates, and outbound Telegram deliveries are paced per chat to avoid Bot API rate limits.
 - `telegram.primary_forum_chat_id` is used by `/topic` to create topics in one dedicated forum.
 - `telegram.auto_create_topics = false` keeps environment import manual; set it to `true` to auto-create missing forum topics from history.
