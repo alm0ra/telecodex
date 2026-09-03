@@ -1950,7 +1950,8 @@ fn group_session_needs_fresh_thread(
 }
 
 fn should_announce_session_switch(config: &Config, chat: &crate::telegram::Chat) -> bool {
-    !is_group_chat(chat) || config.telegram.stream_group_responses
+    config.telegram.announce_session_switches
+        && (!is_group_chat(chat) || config.telegram.stream_group_responses)
 }
 
 fn group_user_is_allowed(config: &Config, chat: &crate::telegram::Chat, user_id: i64) -> bool {

@@ -37,6 +37,8 @@ pub struct TelegramConfig {
     pub group_allowed_user_ids: Vec<i64>,
     #[serde(default = "default_true")]
     pub stream_group_responses: bool,
+    #[serde(default = "default_true")]
+    pub announce_session_switches: bool,
     pub primary_forum_chat_id: Option<i64>,
     #[serde(default)]
     pub auto_create_topics: bool,
@@ -446,6 +448,7 @@ mod tests {
         assert_eq!(config.group_activation, GroupActivation::All);
         assert!(config.group_allowed_user_ids.is_empty());
         assert!(config.stream_group_responses);
+        assert!(config.announce_session_switches);
     }
 
     #[test]

@@ -88,6 +88,7 @@ fn sample_config(db_path: PathBuf, default_cwd: PathBuf) -> Config {
             group_activation: GroupActivation::All,
             group_allowed_user_ids: vec![],
             stream_group_responses: true,
+            announce_session_switches: true,
             primary_forum_chat_id: None,
             auto_create_topics: false,
             forum_sync_topics_per_poll: 2,
@@ -322,6 +323,10 @@ fn final_only_groups_suppress_session_switch_announcements() {
 
     config.telegram.stream_group_responses = true;
     assert!(should_announce_session_switch(&config, &group.chat));
+
+    config.telegram.announce_session_switches = false;
+    assert!(!should_announce_session_switch(&config, &group.chat));
+    assert!(!should_announce_session_switch(&config, &private.chat));
 }
 
 #[test]
