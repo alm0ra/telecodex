@@ -1932,16 +1932,24 @@ fn group_message_is_activated(
     bot_user_id: i64,
     bot_username: Option<&str>,
 ) -> bool {
-    if !group_message_requires_addressing(config, &message.chat) {
+    if !is_group_chat(&message.chat) {
         return true;
     }
 
-    message
-        .reply_to_message
-        .as_deref()
-        .and_then(|reply| reply.from.as_ref())
-        .is_some_and(|from| from.id == bot_user_id)
-        || message_text(message).is_some_and(|text| contains_bot_mention(text, bot_username))
+    let mentioned =
+        message_text(message).is_some_and(|text| contains_bot_mention(text, bot_username));
+    match config.telegram.group_activation {
+        GroupActivation::All => true,
+        GroupActivation::MentionOnly => mentioned,
+        GroupActivation::MentionOrReply => {
+            mentioned
+                || message
+                    .reply_to_message
+                    .as_deref()
+                    .and_then(|reply| reply.from.as_ref())
+                    .is_some_and(|from| from.id == bot_user_id)
+        }
+    }
 }
 
 fn message_text(message: &Message) -> Option<&str> {

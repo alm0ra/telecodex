@@ -10,7 +10,7 @@ bot_token_env = "TELEGRAM_BOT_TOKEN"
 api_base = "https://api.telegram.org"
 use_message_drafts = true
 # Keep the defaults below for existing bots. For an owner-only group bot, set
-# group_activation = "mention_or_reply", group_allowed_user_ids = [123456789],
+# group_activation = "mention_only", group_allowed_user_ids = [123456789],
 # and stream_group_responses = false.
 group_activation = "all"
 group_allowed_user_ids = []

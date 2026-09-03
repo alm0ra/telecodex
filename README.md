@@ -267,7 +267,7 @@ Telecodex will start `codex login --device-auth`, send a clickable `auth.openai.
 
 - `telegram.bot_token` or `telegram.bot_token_env` must be configured.
 - `telegram.use_message_drafts = true` enables `sendMessageDraft` previews for private chats; final replies are still sent as normal messages.
-- `telegram.group_activation = "mention_or_reply"` ignores ordinary group messages and accepts only messages that mention the bot or directly reply to one of its messages. Private chats are unaffected.
+- `telegram.group_activation = "mention_only"` accepts only group messages that mention the bot. Use `"mention_or_reply"` to also accept direct replies to the bot; `"all"` preserves the original behavior. Private chats are unaffected.
 - `telegram.group_allowed_user_ids` is an additional group-only owner allowlist. An empty list preserves the normal SQLite ACL behavior; a non-empty list requires membership in both this list and the ACL.
 - `telegram.stream_group_responses = false` suppresses group placeholders and live edits, sending only the final response. Typing indicators may still be shown while Codex works.
 - Telegram Privacy Mode can remain enabled for `mention_or_reply`; Telegram delivers messages that mention the bot and direct replies to the bot.

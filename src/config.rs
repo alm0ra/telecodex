@@ -54,6 +54,7 @@ pub struct TelegramConfig {
 pub enum GroupActivation {
     #[default]
     All,
+    MentionOnly,
     MentionOrReply,
 }
 

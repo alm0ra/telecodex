@@ -269,6 +269,39 @@ fn mention_or_reply_mode_accepts_only_replies_to_this_bot() {
 }
 
 #[test]
+fn mention_only_mode_rejects_replies_without_a_mention() {
+    let mut config = sample_config(PathBuf::from("db.sqlite3"), sample_workspace());
+    config.telegram.group_activation = GroupActivation::MentionOnly;
+    let reply_to_bot: Message = serde_json::from_value(serde_json::json!({
+        "message_id": 11,
+        "from": { "id": 100, "is_bot": false, "first_name": "Owner" },
+        "chat": { "id": -100123, "type": "supergroup" },
+        "text": "continue",
+        "reply_to_message": {
+            "message_id": 10,
+            "from": { "id": 999, "is_bot": true, "first_name": "Team Bot" },
+            "chat": { "id": -100123, "type": "supergroup" },
+            "text": "previous answer"
+        }
+    }))
+    .unwrap();
+    let mentioned = sample_telegram_message("supergroup", 100, "@team_bot continue");
+
+    assert!(!group_message_is_activated(
+        &config,
+        &reply_to_bot,
+        999,
+        Some("team_bot")
+    ));
+    assert!(group_message_is_activated(
+        &config,
+        &mentioned,
+        999,
+        Some("team_bot")
+    ));
+}
+
+#[test]
 fn strips_only_the_current_bot_mention_from_the_request() {
     assert_eq!(
         strip_bot_mention("@Team_Bot inspect this @other_bot", Some("team_bot")),
